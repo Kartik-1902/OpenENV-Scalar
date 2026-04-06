@@ -1,0 +1,38 @@
+name: openenv-scalar-news-signals
+description: >-
+  OpenEnv environment for forecasting ranked equity movers and commodity directions
+  from bundled financial and macro news context.
+version: 0.1.0
+tags:
+  - openenv
+  - finance
+  - news
+  - real-world
+entrypoint:
+  module: news_stock_env.env
+  class: NewsSignalEnv
+spec:
+  methods:
+    reset:
+      returns: Observation
+    step:
+      input: Action
+      returns:
+        observation: Observation
+        reward: Reward
+        done: bool
+        info: object
+    state:
+      returns: TaskState
+  models:
+    observation_model: news_stock_env.data_types.Observation
+    action_model: news_stock_env.data_types.Action
+    reward_model: news_stock_env.data_types.Reward
+    state_model: news_stock_env.data_types.TaskState
+  tasks:
+    - id: easy
+      description: Direct mention of ticker or commodity and expected movement signal.
+    - id: medium
+      description: Indirect sector/commodity mention without explicit movement direction.
+    - id: hard
+      description: Macro events requiring inferential reasoning to connect to movers.
