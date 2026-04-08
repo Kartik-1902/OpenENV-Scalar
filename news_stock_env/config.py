@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
 
-
-load_dotenv()
-
-
-NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+NEWS_API_KEY = ""
 
 TRUSTED_DOMAINS = [
     "bbc.co.uk",

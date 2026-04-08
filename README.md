@@ -119,7 +119,6 @@ Required env vars for `inference.py`:
 - `LOCAL_IMAGE_NAME` (metadata variable)
 
 Optional env vars:
-- `DATASET_PATH` (default `data/dataset.csv`)
 - `OPENENV_TASK` (default `news-signal`)
 - `OPENENV_BENCHMARK` (default `openenv-scalar`)
 

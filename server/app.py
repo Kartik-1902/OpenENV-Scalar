@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uvicorn
 
-from news_stock_env.space_app import app
+from app import app
 
 
 def main() -> None:
