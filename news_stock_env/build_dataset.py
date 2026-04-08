@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
@@ -30,12 +31,14 @@ def build_rows(start: str, end: str) -> list[dict]:
     for idx, date_str in enumerate(_date_range(start, end), start=1):
         try:
             truth = get_stock_predictions(date_str)
-        except Exception:
+        except Exception as exc:
+            logging.warning("Skipping %s: stock fetch failed: %s", date_str, exc)
             continue
 
         long_term = get_long_term_context(date_str)
         short_term = get_short_term_context(date_str)
         if not short_term:
+            logging.warning("Skipping %s: no short-term articles returned", date_str)
             continue
 
         difficulty = label_difficulty_approach_1(short_term, truth)
@@ -54,6 +57,8 @@ def build_rows(start: str, end: str) -> list[dict]:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     parser = argparse.ArgumentParser(description="Build bundled news-stock OpenEnv dataset")
     parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")

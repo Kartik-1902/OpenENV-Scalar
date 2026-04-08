@@ -1,0 +1,16 @@
+[project]
+name = "openenv-scalar"
+version = "0.1.0"
+description = "OpenEnv Scalar news-signal environment"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "openenv-core>=0.2.0"
+]
+
+authors = [
+  { name = "OpenENV-Scalar" }
+]
+
+[project.scripts]
+server = "server.app:main"

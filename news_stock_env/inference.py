@@ -2,28 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from openai import OpenAI
+from llm_client import call_llm
 
-from .config import GEMINI_API_KEY, OPENAI_API_KEY, RANDOM_SEED
+from .config import RANDOM_SEED
 from .data_types import Action, DatasetRow, NewsArticle, StockPrediction
 from .env import NewsSignalEnv
-
-
-def _build_client() -> OpenAI:
-    if GEMINI_API_KEY:
-        # Gemini supports OpenAI-compatible API endpoints.
-        return OpenAI(api_key=GEMINI_API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
-
-    if OPENAI_API_KEY:
-        return OpenAI(api_key=OPENAI_API_KEY)
-
-    raise ValueError("Set GEMINI_API_KEY (preferred) or OPENAI_API_KEY.")
 
 
 def _load_dataset(path: str) -> list[DatasetRow]:
@@ -43,27 +34,60 @@ def _load_dataset(path: str) -> list[DatasetRow]:
     return rows
 
 
-def _predict_action(client: OpenAI, obs_text: str) -> Action:
-    model_name = "gemini-2.0-flash" if GEMINI_API_KEY else "gpt-4o-mini"
-    response = client.chat.completions.create(
-        model=model_name,
-        temperature=0.0,
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You predict top 5 gainers, top 5 losers and gold/silver/oil directions. "
-                    "Return JSON only with keys gainers, losers, assets."
-                ),
-            },
-            {"role": "user", "content": obs_text},
-        ],
+def _predict_action(obs_text: str) -> Action:
+    content = call_llm(
+        [{"role": "user", "content": obs_text}],
+        system_prompt=(
+            "You predict top 5 gainers, top 5 losers and gold/silver/oil directions. "
+            "Return JSON only with keys gainers, losers, assets."
+        ),
     )
-
-    content = response.choices[0].message.content or "{}"
+    content = content or "{}"
     payload: dict[str, Any] = json.loads(content)
     return Action(**payload)
+
+
+def _compact_observation_text(obs: dict[str, Any], max_articles: int = 12, max_chars: int = 6000) -> str:
+    long_articles = obs.get("long_term_context", [])[:max_articles]
+    short_articles = obs.get("short_term_context", [])[:max_articles]
+
+    def _titles(items: list[dict[str, Any]]) -> list[str]:
+        return [str(item.get("title", "")).strip() for item in items if item.get("title")]
+
+    compact = {
+        "task_id": obs.get("task_id"),
+        "date": obs.get("date"),
+        "difficulty": obs.get("difficulty"),
+        "instruction": obs.get("instruction"),
+        "long_term_titles": _titles(long_articles),
+        "short_term_titles": _titles(short_articles),
+        "schema": {
+            "gainers": "list[str] length 5",
+            "losers": "list[str] length 5",
+            "assets": {"gold": "UP|DOWN|NEUTRAL", "silver": "UP|DOWN|NEUTRAL", "oil": "UP|DOWN|NEUTRAL"},
+        },
+    }
+    text = json.dumps(compact)
+    return text[:max_chars]
+
+
+def _predict_with_retries(obs_text: str, retries: int = 4) -> Action:
+    delay = 2.0
+    last_error: Exception | None = None
+
+    for attempt in range(retries + 1):
+        try:
+            return _predict_action(obs_text)
+        except Exception as exc:
+            last_error = exc
+            # Handle provider throttling with bounded exponential backoff.
+            if "429" in str(exc) and attempt < retries:
+                time.sleep(delay)
+                delay = min(delay * 2.0, 30.0)
+                continue
+            raise
+
+    raise RuntimeError(f"prediction failed after retries: {last_error}")
 
 
 def run_baseline(dataset_path: str, episodes: int, out_path: str) -> dict:
@@ -77,7 +101,6 @@ def run_baseline(dataset_path: str, episodes: int, out_path: str) -> dict:
     selected = dataset[: min(episodes, len(dataset))]
 
     env = NewsSignalEnv(dataset=selected)
-    client = _build_client()
 
     results: list[dict] = []
     total = 0.0
@@ -86,13 +109,30 @@ def run_baseline(dataset_path: str, episodes: int, out_path: str) -> dict:
 
     for _ in range(len(selected)):
         obs = env.reset()
-        obs_text = json.dumps(obs.model_dump())
-        action = _predict_action(client, obs_text)
-        step_result = env.step(action)
+        obs_text = _compact_observation_text(obs.model_dump())
+        try:
+            action = _predict_with_retries(obs_text)
+            step_result = env.step(action)
+        except Exception as exc:
+            # Keep baseline runs reproducible when provider quota/rate limits are hit.
+            results.append(
+                {
+                    "task_id": obs.task_id,
+                    "date": obs.date,
+                    "difficulty": obs.difficulty,
+                    "reward": 0.0,
+                    "progress": 0.0,
+                    "penalty": 0.0,
+                    "error": str(exc),
+                }
+            )
+            difficulty_totals[obs.difficulty] += 0.0
+            difficulty_counts[obs.difficulty] += 1
+            continue
 
         total += step_result.reward.value
-    difficulty_totals[obs.difficulty] += step_result.reward.value
-    difficulty_counts[obs.difficulty] += 1
+        difficulty_totals[obs.difficulty] += step_result.reward.value
+        difficulty_counts[obs.difficulty] += 1
         results.append(
             {
                 "task_id": obs.task_id,
@@ -108,7 +148,8 @@ def run_baseline(dataset_path: str, episodes: int, out_path: str) -> dict:
         "episodes": len(selected),
         "average_reward": total / len(selected),
         "seed": RANDOM_SEED,
-        "model": "gemini-2.0-flash" if GEMINI_API_KEY else "gpt-4o-mini",
+        "provider": "llm_client",
+        "model": os.getenv("MODEL_NAME", ""),
         "difficulty_summary": {
             difficulty: {
                 "count": difficulty_counts.get(difficulty, 0),

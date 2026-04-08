@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import List
 
 from .data_types import Action, DatasetRow, Observation, StepResult, TaskState
-from .reward import compute_reward
+from .reward import MAX_RAW_REWARD, MAX_WITH_MULTIPLIER, compute_reward
 
 
 @dataclass
@@ -53,6 +53,24 @@ class NewsSignalEnv:
             self._repeat_count = 0
 
         reward = compute_reward(action, row.stock_predictions, repeat_count=self._repeat_count)
+
+        difficulty_multiplier = {
+            "easy": 1.0,
+            "medium": 1.5,
+            "hard": 2.0,
+        }.get(self._state.difficulty.lower(), 1.0)
+
+        raw_total = float(reward.details.get("raw_total", 0.0))
+        penalty_raw = float(reward.penalty) * MAX_RAW_REWARD
+        adjusted_raw = max(raw_total - penalty_raw, 0.0)
+
+        multiplied = adjusted_raw * difficulty_multiplier
+        multiplied_progress = raw_total * difficulty_multiplier
+
+        reward.value = round(min(multiplied / MAX_WITH_MULTIPLIER, 1.0), 4)
+        reward.progress = round(min(multiplied_progress / MAX_WITH_MULTIPLIER, 1.0), 4)
+        reward.details["difficulty_multiplier"] = difficulty_multiplier
+        reward.details["max_with_multiplier"] = MAX_WITH_MULTIPLIER
 
         self._state.step_index += 1
         self._state.done = True

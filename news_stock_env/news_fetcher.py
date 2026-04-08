@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
 from typing import List
 
 from newsapi import NewsApiClient
@@ -38,7 +39,7 @@ def _client() -> NewsApiClient:
 def get_long_term_context(date_str: str, days_back: int = 7, page_size: int = 30) -> List[NewsArticle]:
     date = datetime.strptime(date_str, "%Y-%m-%d")
     start = (date - timedelta(days=days_back)).strftime("%Y-%m-%d")
-    end = date.strftime("%Y-%m-%d")
+    end = (date + timedelta(days=1)).strftime("%Y-%m-%d")
 
     try:
         result = _client().get_everything(
@@ -51,7 +52,8 @@ def get_long_term_context(date_str: str, days_back: int = 7, page_size: int = 30
             page_size=page_size,
             page=1,
         )
-    except Exception:
+    except Exception as exc:
+        logging.warning("Long-term NewsAPI request failed for %s: %s", date_str, exc)
         return []
 
     articles = result.get("articles", []) if isinstance(result, dict) else []
@@ -59,19 +61,40 @@ def get_long_term_context(date_str: str, days_back: int = 7, page_size: int = 30
 
 
 def get_short_term_context(date_str: str) -> List[NewsArticle]:
+    date = datetime.strptime(date_str, "%Y-%m-%d")
+    next_day = (date + timedelta(days=1)).strftime("%Y-%m-%d")
+
     try:
         result = _client().get_everything(
             q=_query(),
             from_param=date_str,
-            to=date_str,
+            to=next_day,
             language="en",
             sort_by="popularity",
             domains=",".join(TRUSTED_DOMAINS),
             page_size=SHORT_TERM_ARTICLES_PER_DATE,
             page=1,
         )
-    except Exception:
+    except Exception as exc:
+        logging.warning("Short-term NewsAPI request failed for %s: %s", date_str, exc)
         return []
 
     articles = result.get("articles", []) if isinstance(result, dict) else []
+    if not articles:
+        # Fallback: relax domain filtering for better coverage on low-volume days.
+        try:
+            result = _client().get_everything(
+                q=_query(),
+                from_param=date_str,
+                to=next_day,
+                language="en",
+                sort_by="popularity",
+                page_size=SHORT_TERM_ARTICLES_PER_DATE,
+                page=1,
+            )
+            articles = result.get("articles", []) if isinstance(result, dict) else []
+        except Exception as exc:
+            logging.warning("Short-term NewsAPI fallback failed for %s: %s", date_str, exc)
+            return []
+
     return _to_articles(articles)

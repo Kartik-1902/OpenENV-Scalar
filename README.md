@@ -106,6 +106,23 @@ Run baseline inference:
 python -m news_stock_env.inference --dataset data/dataset.csv --episodes 30 --out data/results.json
 ```
 
+Run competition-format root inference script (required submission contract):
+
+```powershell
+python inference.py
+```
+
+Required env vars for `inference.py`:
+- `API_BASE_URL`
+- `MODEL_NAME`
+- `HF_TOKEN` (or `API_KEY`)
+- `LOCAL_IMAGE_NAME` (metadata variable)
+
+Optional env vars:
+- `DATASET_PATH` (default `data/dataset.csv`)
+- `OPENENV_TASK` (default `news-signal`)
+- `OPENENV_BENCHMARK` (default `openenv-scalar`)
+
 Run tests:
 
 ```powershell
@@ -135,6 +152,15 @@ Files used:
 - [Dockerfile](Dockerfile)
 - [hf_space.yaml](hf_space.yaml)
 - [news_stock_env/space_app.py](news_stock_env/space_app.py)
+
+Pre-submission validation script:
+- [scripts/validate-submission.sh](scripts/validate-submission.sh)
+
+Example:
+
+```bash
+bash scripts/validate-submission.sh https://your-space.hf.space
+```
 
 ## Repository Layout
 

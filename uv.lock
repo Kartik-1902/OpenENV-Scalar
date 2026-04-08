@@ -1,0 +1,2 @@
+# Minimal lockfile placeholder for OpenEnv validator.
+# Generate with `uv lock` when uv is available in your environment.
